@@ -1,5 +1,10 @@
 {
     "files.associations": {
-        "user.h": "c"
+        "user.h": "c",
+        "mutex": "c",
+        "shared_mutex": "c",
+        "condition_variable": "c",
+        "memory": "c",
+        "memory_resource": "c"
     }
 }

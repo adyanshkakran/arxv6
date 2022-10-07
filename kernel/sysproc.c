@@ -129,3 +129,15 @@ sys_sigreturn(void)
 
   return p->trapframe->a0;
 }
+
+int
+sys_settickets(void)
+{
+  int number;
+  argint(0,&number);
+  if(number <= 0)
+    return -1;
+  struct proc *p = myproc();
+  p->tickets = number;
+  return 0;
+}

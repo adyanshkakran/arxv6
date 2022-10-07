@@ -110,4 +110,5 @@ struct proc {
   int passed_cputicks;         // ticks passed since last call of handler
   struct trapframe *initial_trapframe; // Trapframe to store details regarding return point of initial proc
   int ctime;                   // Creation time of process
+  int tickets;                 // Number of tickets for lotterby based scheduler
 };

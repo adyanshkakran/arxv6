@@ -8,7 +8,12 @@
 
 struct cpu cpus[NCPU];
 
-struct proc proc[NPROC];
+// struct proc proc[NPROC];
+
+struct {
+  struct spinlock lock;
+  struct proc proc[NPROC];
+} ptable;
 
 struct proc *initproc;
 
@@ -34,11 +39,11 @@ proc_mapstacks(pagetable_t kpgtbl)
 {
   struct proc *p;
   
-  for(p = proc; p < &proc[NPROC]; p++) {
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
     char *pa = kalloc();
     if(pa == 0)
       panic("kalloc");
-    uint64 va = KSTACK((int) (p - proc));
+    uint64 va = KSTACK((int) (p - ptable.proc));
     kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   }
 }
@@ -51,10 +56,10 @@ procinit(void)
   
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
-  for(p = proc; p < &proc[NPROC]; p++) {
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
       p->state = UNUSED;
-      p->kstack = KSTACK((int) (p - proc));
+      p->kstack = KSTACK((int) (p - ptable.proc));
   }
 }
 
@@ -111,7 +116,7 @@ allocproc(void)
 {
   struct proc *p;
 
-  for(p = proc; p < &proc[NPROC]; p++) {
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
     acquire(&p->lock);
     if(p->state == UNUSED) {
       goto found;
@@ -144,6 +149,7 @@ found:
   p->handler = 0;
   p->passed_cputicks = 0;
   p->ctime = ticks;
+  p->tickets = 1;
 
   if ((p->initial_trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -321,7 +327,8 @@ fork(void)
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
-  np->mask = p->mask;
+  np->mask = p->mask;           // Copying parent's mask
+  np->tickets = p->tickets;     // Copying parent's tickets
   
   pid = np->pid;
 
@@ -345,7 +352,7 @@ reparent(struct proc *p)
 {
   struct proc *pp;
 
-  for(pp = proc; pp < &proc[NPROC]; pp++){
+  for(pp = ptable.proc; pp < &ptable.proc[NPROC]; pp++) {
     if(pp->parent == p){
       pp->parent = initproc;
       wakeup(initproc);
@@ -412,7 +419,7 @@ wait(uint64 addr)
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
-    for(pp = proc; pp < &proc[NPROC]; pp++){
+    for(pp = ptable.proc; pp < &ptable.proc[NPROC]; pp++) {
       if(pp->parent == p){
         // make sure the child isn't still in exit() or swtch().
         acquire(&pp->lock);
@@ -466,7 +473,7 @@ scheduler(void)
     intr_on();
     #ifdef FCFS
       struct proc* minP = 0;
-      for(p = proc; p < &proc[NPROC]; p++) {
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
         acquire(&p->lock);
         if(p->state == RUNNABLE && (minP == 0 || minP->ctime > p->ctime)){
           minP = p;
@@ -484,10 +491,40 @@ scheduler(void)
         release(&minP->lock);
       }
     #endif
-    #ifdef DEFAULT
-      for(p = proc; p < &proc[NPROC]; p++) {
+    #ifdef LOTTERY
+      int total_tickets = 0;
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++,in++) {
         acquire(&p->lock);
-        
+        if(p->state == RUNNABLE){
+          total_tickets += p->tickets;
+        }
+        release(&p->lock);
+      }
+
+      if(total_tickets == 0)
+        continue;
+
+      int lottery_winner = rand()%total_tickets;
+      int current = 0;
+
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if(p->state == RUNNABLE && lottery_winner < p->tickets+current){
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
+
+          c->proc = 0;
+          release(&p->lock);
+          break;
+        }
+        current += p->tickets;
+        release(&p->lock);
+      }
+    #endif
+    #ifdef DEFAULT
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+        acquire(&p->lock);
         if(p->state == RUNNABLE) {
             // Switch to chosen process.  It is the process's job
             // to release its lock and then reacquire it
@@ -500,7 +537,7 @@ scheduler(void)
             // It should have changed its p->state before coming back.
             c->proc = 0;
         }
-          release(&p->lock);
+        release(&p->lock);
       }
     #endif
   }
@@ -604,7 +641,7 @@ wakeup(void *chan)
 {
   struct proc *p;
 
-  for(p = proc; p < &proc[NPROC]; p++) {
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
@@ -623,7 +660,7 @@ kill(int pid)
 {
   struct proc *p;
 
-  for(p = proc; p < &proc[NPROC]; p++){
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
     acquire(&p->lock);
     if(p->pid == pid){
       p->killed = 1;
@@ -706,7 +743,7 @@ procdump(void)
   char *state;
 
   printf("\n");
-  for(p = proc; p < &proc[NPROC]; p++){
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
     if(p->state == UNUSED)
       continue;
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
@@ -716,4 +753,12 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+static unsigned long int next = 1;
+
+int rand(void) // RAND_MAX assumed to be 32767
+{
+    next = next * 1103515245 + 12345;
+    return (unsigned int)(next/65536) % 32768;
 }
