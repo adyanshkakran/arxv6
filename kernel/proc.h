@@ -110,5 +110,14 @@ struct proc {
   int passed_cputicks;         // ticks passed since last call of handler
   struct trapframe *initial_trapframe; // Trapframe to store details regarding return point of initial proc
   int ctime;                   // Creation time of process
-  int tickets;                 // Number of tickets for lotterby based scheduler
+
+  int tickets;                 // Number of tickets for lottery based scheduler
+
+  int scheduled;               // Number of times process has been scheduled
+  int sleepTime;               // Number of ticks process has been sleeping
+  int runTime;                 // Number of ticks process has been running
+  int SP;                      // Static Priority for PBS 
+  int DP;                      // Dynamic Priority for PBS 
 };
+
+extern struct proc proc[NPROC];

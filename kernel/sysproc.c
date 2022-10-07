@@ -141,3 +141,29 @@ sys_settickets(void)
   p->tickets = number;
   return 0;
 }
+
+int
+sys_setpriority(void)
+{
+  int priority,pid,oldSP = -1,oldDP;
+  argint(0,&priority);
+  argint(1,&pid);
+  if(pid < 0 || priority < 0 || priority > 100)
+    return -1;
+  struct proc* p;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->pid == pid){
+      oldSP = p->SP;
+      oldDP = p->DP;
+      p->SP = priority;
+      p->sleepTime = 0;
+      p->runTime = 0;
+      p->DP = p->SP;
+      if(p->DP < oldDP)
+        yield();
+    }
+    release(&p->lock);
+  }
+  return oldSP;
+}

@@ -8,12 +8,7 @@
 
 struct cpu cpus[NCPU];
 
-// struct proc proc[NPROC];
-
-struct {
-  struct spinlock lock;
-  struct proc proc[NPROC];
-} ptable;
+struct proc proc[NPROC];
 
 struct proc *initproc;
 
@@ -39,11 +34,11 @@ proc_mapstacks(pagetable_t kpgtbl)
 {
   struct proc *p;
   
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+  for(p = proc; p < &proc[NPROC]; p++) {
     char *pa = kalloc();
     if(pa == 0)
       panic("kalloc");
-    uint64 va = KSTACK((int) (p - ptable.proc));
+    uint64 va = KSTACK((int) (p - proc));
     kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   }
 }
@@ -56,10 +51,10 @@ procinit(void)
   
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+  for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
       p->state = UNUSED;
-      p->kstack = KSTACK((int) (p - ptable.proc));
+      p->kstack = KSTACK((int) (p - proc));
   }
 }
 
@@ -116,7 +111,7 @@ allocproc(void)
 {
   struct proc *p;
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+  for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if(p->state == UNUSED) {
       goto found;
@@ -150,6 +145,11 @@ found:
   p->passed_cputicks = 0;
   p->ctime = ticks;
   p->tickets = 1;
+  p->sleepTime = 0;
+  p->runTime = 0;
+  p->scheduled = 0;
+  p->SP = 60;
+  p->DP = 0;
 
   if ((p->initial_trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -352,7 +352,7 @@ reparent(struct proc *p)
 {
   struct proc *pp;
 
-  for(pp = ptable.proc; pp < &ptable.proc[NPROC]; pp++) {
+  for(pp = proc; pp < &proc[NPROC]; pp++) {
     if(pp->parent == p){
       pp->parent = initproc;
       wakeup(initproc);
@@ -419,7 +419,7 @@ wait(uint64 addr)
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
-    for(pp = ptable.proc; pp < &ptable.proc[NPROC]; pp++) {
+    for(pp = proc; pp < &proc[NPROC]; pp++) {
       if(pp->parent == p){
         // make sure the child isn't still in exit() or swtch().
         acquire(&pp->lock);
@@ -473,7 +473,7 @@ scheduler(void)
     intr_on();
     #ifdef FCFS
       struct proc* minP = 0;
-      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+      for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
         if(p->state == RUNNABLE && (minP == 0 || minP->ctime > p->ctime)){
           minP = p;
@@ -493,7 +493,7 @@ scheduler(void)
     #endif
     #ifdef LOTTERY
       int total_tickets = 0;
-      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++,in++) {
+      for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
         if(p->state == RUNNABLE){
           total_tickets += p->tickets;
@@ -507,7 +507,7 @@ scheduler(void)
       int lottery_winner = rand()%total_tickets;
       int current = 0;
 
-      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+      for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
         if(p->state == RUNNABLE && lottery_winner < p->tickets+current){
           p->state = RUNNING;
@@ -522,8 +522,46 @@ scheduler(void)
         release(&p->lock);
       }
     #endif
+    #ifdef PBS
+      struct proc* highP = 0;
+      // int maxDP = 101;
+      for(p = proc; p < &proc[NPROC]; p++) {
+        acquire(&p->lock);
+        if(p->state == RUNNABLE){
+          int nice = 5;
+          if(p->sleepTime + p->runTime)
+            nice = (p->sleepTime*10) / (p->runTime + p->sleepTime);
+          int t = p->SP-nice+5 > 100 ? 100 : p->SP - nice + 5;
+          p->DP = t > 0 ? t : 0;
+          if(highP == 0 || p->DP < highP->DP){
+            highP = p;
+          }else if(p->DP == highP->DP){
+            if(p->scheduled < highP->scheduled){
+              highP = p;
+            }else if(p->scheduled == highP->scheduled){
+              if(p->ctime > highP->ctime){
+                highP = p;
+              }
+            }
+          }
+          // printf("")
+        }
+        release(&p->lock);
+      }
+      if(highP){
+        acquire(&highP->lock);
+        if(highP->state == RUNNABLE){
+          highP->scheduled++;
+          highP->state = RUNNING;
+          c->proc = highP;
+          swtch(&c->context, &highP->context);
+          c->proc = 0;
+        }
+        release(&highP->lock);
+      }
+    #endif
     #ifdef DEFAULT
-      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+      for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
         if(p->state == RUNNABLE) {
             // Switch to chosen process.  It is the process's job
@@ -641,7 +679,7 @@ wakeup(void *chan)
 {
   struct proc *p;
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+  for(p = proc; p < &proc[NPROC]; p++) {
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
@@ -660,7 +698,7 @@ kill(int pid)
 {
   struct proc *p;
 
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+  for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if(p->pid == pid){
       p->killed = 1;
@@ -743,7 +781,7 @@ procdump(void)
   char *state;
 
   printf("\n");
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+  for(p = proc; p < &proc[NPROC]; p++) {
     if(p->state == UNUSED)
       continue;
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
@@ -761,4 +799,16 @@ int rand(void) // RAND_MAX assumed to be 32767
 {
     next = next * 1103515245 + 12345;
     return (unsigned int)(next/65536) % 32768;
+}
+
+void updateTime(){
+  struct proc* p;
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->state == SLEEPING)
+      p->sleepTime++;
+    else if(p->state == RUNNING)
+      p->runTime++;
+    release(&p->lock);
+  }
 }
