@@ -65,6 +65,7 @@ void            kfree(void *);
 void            kinit(void);
 void            addReference(void*);
 void            decReference(void*);
+int             pagefhandler(pagetable_t ,uint64);
 
 // log.c
 void            initlog(int, struct superblock*);
