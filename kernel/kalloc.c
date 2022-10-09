@@ -107,12 +107,12 @@ void decReference(void* pa){
   if(references[ref] <= 0){
     panic("References");
   }
+  references[ref]--;
   
   // If all references to page is removed
-  if(references[ref] == 1){
+  if(references[ref] == 0){
     kfree(pa);
   }
-  references[ref]--;
 }
 
 int pagefhandler(pagetable_t pagetable,uint64 va){
@@ -128,27 +128,16 @@ int pagefhandler(pagetable_t pagetable,uint64 va){
     printf("Permissions not found\n");
     return -1;
   }
-  // uint flags = PTE_FLAGS(*pte);
 
   uint64 pa = (uint64)PTE2PA(*pte);
-  // if(references[PA2REF(pa)] == 1){
-  //   flags |= PTE_W; // Add write, remove cow flags
-  //   flags &= (~PTE_COW);
-  //   return 0;
-  // }
 
   char *mem = kalloc(); // Make copy of page and map calling process(parent or child) to it
   if(mem == 0)
     return -1;
   memmove(mem,(char*)pa,PGSIZE);
 
-  // uvmunmap(pagetable,va,PGSIZE,0);
   kfree((void*)pa);
   *pte = PA2PTE(mem) | PTE_V | PTE_U | PTE_R | PTE_W | PTE_X;
 
-  // if(mappages(pagetable,va,PGSIZE,(uint64)mem,flags)!= 0){
-  //   printf("Couldn't map new pages to process");
-  //   return -1;
-  // }
   return 0;
 }
