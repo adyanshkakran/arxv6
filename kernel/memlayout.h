@@ -47,6 +47,9 @@
 #define KERNBASE 0x80000000L
 #define PHYSTOP (KERNBASE + 128*1024*1024)
 
+#define PA2REF(pa) ((((uint64)pa)-KERNBASE)/PGSIZE)
+#define MAXREF PA2REF(PHYSTOP)
+
 // map the trampoline page to the highest address,
 // in both user and kernel space.
 #define TRAMPOLINE (MAXVA - PGSIZE)

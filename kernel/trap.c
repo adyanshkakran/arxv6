@@ -44,13 +44,14 @@ usertrap(void)
   // send interrupts and exceptions to kerneltrap(),
   // since we're now in the kernel.
   w_stvec((uint64)kernelvec);
+  uint64 scause = r_scause();
 
   struct proc *p = myproc();
   
   // save user program counter.
   p->trapframe->epc = r_sepc();
   
-  if(r_scause() == 8){
+  if(scause == 8){
     // system call
 
     if(killed(p))
@@ -65,6 +66,36 @@ usertrap(void)
     intr_on();
 
     syscall();
+  }else if(scause == 15){
+    // Handling the page fault
+    if(killed(p))
+      exit(-1);
+
+    uint64 va = PGROUNDDOWN(r_stval()); // Going to the start of the page which cause Page Fault Exception
+    pte_t *pte = walk(p->pagetable,va,0);
+    if(pte == 0){
+      printf("Page not Found: Page Fault Exception\n");
+      p->killed = 1;
+      exit(-1);
+    }
+    if ((*pte & PTE_V) && (*pte & PTE_U) && (*pte & PTE_COW)) {
+      uint flags = PTE_FLAGS(*pte);
+
+      flags |= PTE_W; // Add write, remove cow flags
+      flags &= (~PTE_COW);
+
+      char *mem = kalloc(); // Make copy of page and map calling process(parent or child) to it
+      memmove(mem,(char*)PTE2PA(*pte),PGSIZE);
+
+      uvmunmap(p->pagetable,va,PGSIZE,0);
+      decReference((void*)PTE2PA(*pte));
+
+      if(mappages(p->pagetable,va,PGSIZE,(uint64)mem,flags)!= 0){
+        p->killed = 1;
+        printf("Couldn't map new pages to process");
+      }
+    }
+    
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

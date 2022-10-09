@@ -5,6 +5,8 @@
         "shared_mutex": "c",
         "condition_variable": "c",
         "memory": "c",
-        "memory_resource": "c"
+        "memory_resource": "c",
+        "defs.h": "c",
+        "memlayout.h": "c"
     }
 }

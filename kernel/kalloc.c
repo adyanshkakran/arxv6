@@ -23,6 +23,8 @@ struct {
   struct run *freelist;
 } kmem;
 
+int references[MAXREF];
+
 void
 kinit()
 {
@@ -36,7 +38,7 @@ freerange(void *pa_start, void *pa_end)
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
-    kfree(p);
+    decReference(p);
 }
 
 // Free the page of physical memory pointed at by pa,
@@ -78,5 +80,28 @@ kalloc(void)
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+  addReference((void*)r);
   return (void*)r;
+}
+
+void addReference(void* pa){
+  int ref = PA2REF(pa);
+  if(ref < 0 || ref >= MAXREF)
+    return;
+  references[ref]++;
+}
+
+void decReference(void* pa){
+  int ref = PA2REF(pa);
+  if(ref < 0 || ref >= MAXREF)
+    return;
+  if(references[ref] <= 0){
+    panic("References");
+  }
+  
+  // If all references to page is removed
+  if(references[ref] == 1){
+    kfree(pa);
+  }
+  references[ref]--;
 }

@@ -308,7 +308,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -317,11 +316,18 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+
+    flags |= PTE_COW;     // Set CoW Flag
+    flags &= ~(PTE_W);     // Unset Write Flag
+
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){ // Map parents pages to child
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    }
+    addReference((void*)pa);
+
+    // Re-adds parent pages with updated flags
+    uvmunmap(old, i, PGSIZE, 0);
+    if(mappages(old, i, PGSIZE, (uint64)pa, flags) != 0){
       goto err;
     }
   }
@@ -351,21 +357,43 @@ uvmclear(pagetable_t pagetable, uint64 va)
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
-  uint64 n, va0, pa0;
+  uint64 n, va, pa0 = 0;
 
   while(len > 0){
-    va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
+    va = PGROUNDDOWN(dstva); // Going to the start of the page which cause Page Fault Exception
+    pte_t *pte = walk(pagetable,va,0);
+    if(pte == 0 || !(*pte & PTE_V) || !(*pte & PTE_U)){
+      return -1;
+    }
+    if ((*pte & PTE_COW)) {
+      pa0 = PTE2PA(*pte);
+      uint flags = PTE_FLAGS(*pte);
+
+      flags |= PTE_W; // Add write, remove cow flags
+      flags &= (~PTE_COW);
+
+      char *mem = kalloc(); // Make copy of page and map calling process(parent or child) to it
+      memmove(mem,(char*)pa0,PGSIZE);
+
+      uvmunmap(pagetable,va,PGSIZE,0);
+      decReference((void*)pa0);
+
+      if(mappages(pagetable,va,PGSIZE,(uint64)mem,flags)!= 0){
+        printf("Couldn't map new pages to process");
+      }
+    }
+
+
     if(pa0 == 0)
       return -1;
-    n = PGSIZE - (dstva - va0);
+    n = PGSIZE - (dstva - va);
     if(n > len)
       n = len;
-    memmove((void *)(pa0 + (dstva - va0)), src, n);
+    memmove((void *)(pa0 + (dstva - va)), src, n);
 
     len -= n;
     src += n;
-    dstva = va0 + PGSIZE;
+    dstva = va + PGSIZE;
   }
   return 0;
 }
