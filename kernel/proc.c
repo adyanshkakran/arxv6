@@ -6,6 +6,52 @@
 #include "proc.h"
 #include "defs.h"
 
+// typedef struct Qnode{
+//     struct process* process;
+//     struct Qnode* next;
+// } qnode;
+
+// typedef struct Queue{
+//   struct Qnode* front;
+//   struct Qnode* rear;
+//   int size;
+// } queue;
+
+// queue* createQueue(){
+//     queue* q = (queue*)malloc(sizeof(queue));
+//     q->front = (void*)0;
+//     q->rear = (void*)0;
+//     q->size = 0;
+//     return q;
+// }
+
+// void addToQueue(queue* q,struct process* p){
+//   qnode* newn = (qnode*)malloc(sizeof(qnode));
+//   newn->process = p;
+//   newn->next = (void*)0;
+//   q->size++;
+//   if(q->size == 1){
+//     q->front = newn;
+//     q->rear = newn;
+//   }else{
+//     q->rear->next = newn;
+//     q->rear = newn;
+//   }
+// }
+
+// struct process* pop(queue* q){
+//   if(q->size == 0)
+//     return -1;
+//   struct process* r = q->front->process;
+//   qnode* temp = q->front;
+//   q->front = q->front->next;
+//   if(q->front == (void*)0)
+//     q->rear = (void*)0;
+//   free(temp);
+//   q->size--;
+//   return r;
+// }
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -144,6 +190,8 @@ found:
   p->handler = 0;
   p->passed_cputicks = 0;
   p->ctime = ticks;
+  p->rtime = 0;
+  p->etime = 0;
   p->tickets = 1;
   p->sleepTime = 0;
   p->runTime = 0;
@@ -397,6 +445,7 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
+  p->etime = ticks;
 
   release(&wait_lock);
 
@@ -524,7 +573,6 @@ scheduler(void)
     #endif
     #ifdef PBS
       struct proc* highP = 0;
-      // int maxDP = 101;
       for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
         if(p->state == RUNNABLE){
@@ -544,7 +592,6 @@ scheduler(void)
               }
             }
           }
-          // printf("")
         }
         release(&p->lock);
       }
@@ -557,8 +604,12 @@ scheduler(void)
           swtch(&c->context, &highP->context);
           c->proc = 0;
         }
+        printf("%s\n",highP->name);
         release(&highP->lock);
       }
+    #endif
+    #ifdef MLFQ
+      
     #endif
     #ifdef DEFAULT
       for(p = proc; p < &proc[NPROC]; p++) {
@@ -788,7 +839,7 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    printf("%d %s %s", p->pid, state, p->name);
+    printf("%d %s %s %d %d", p->pid, state, p->name, p->rtime,p->runTime);
     printf("\n");
   }
 }
@@ -807,8 +858,59 @@ void updateTime(){
     acquire(&p->lock);
     if(p->state == SLEEPING)
       p->sleepTime++;
-    else if(p->state == RUNNING)
+    else if(p->state == RUNNING){
       p->runTime++;
+      p->rtime++;
+    }
     release(&p->lock);
+  }
+}
+
+int
+waitx(uint64 addr, uint* wtime, uint* rtime)
+{
+  struct proc *np;
+  int havekids, pid;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(np = proc; np < &proc[NPROC]; np++){
+      if(np->parent == p){
+        // make sure the child isn't still in exit() or swtch().
+        acquire(&np->lock);
+
+        havekids = 1;
+        if(np->state == ZOMBIE){
+          // Found one.
+          pid = np->pid;
+          *rtime = np->rtime;
+          *wtime = np->etime - np->ctime - np->rtime;
+          if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
+                                  sizeof(np->xstate)) < 0) {
+            release(&np->lock);
+            release(&wait_lock);
+            return -1;
+          }
+          freeproc(np);
+          release(&np->lock);
+          release(&wait_lock);
+          return pid;
+        }
+        release(&np->lock);
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if(!havekids || p->killed){
+      release(&wait_lock);
+      return -1;
+    }
+
+    // Wait for a child to exit.
+    sleep(p, &wait_lock);  //DOC: wait-sleep
   }
 }

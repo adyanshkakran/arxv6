@@ -104,12 +104,16 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
   int mask;                    // Mask for Strace Command
+
   int cputicks;                // sigalarm ticks
   uint64 handler;              // sigalarm handler function pointer
   int passed_cputicks;         // ticks passed since last call of handler
   struct trapframe *initial_trapframe; // Trapframe to store details regarding return point of initial proc
   int ctime;                   // Creation time of process
+  int rtime;                   // Running time of process
+  int etime;                   // Exit time of process
 
   int tickets;                 // Number of tickets for lottery based scheduler
 

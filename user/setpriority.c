@@ -11,7 +11,7 @@ main(int argc, char *argv[])
         return 1;
     }
 
-    if (setpriority(atoi(argv[1]),atoi(argv[2])) < 0) {
+    if (set_priority(atoi(argv[1]),atoi(argv[2])) < 0) {
         fprintf(2, "Set Priority failed\n");
         return 1;
     }
