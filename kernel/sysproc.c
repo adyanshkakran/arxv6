@@ -145,7 +145,7 @@ sys_settickets(void)
 int
 sys_set_priority(void)
 {
-  int priority,pid,oldSP = -1,oldDP;
+  int priority,pid,oldSP = -1,oldDP=-1,scheduleAgain = 0;
   argint(0,&priority);
   argint(1,&pid);
   if(pid < 0 || priority < 0 || priority > 100)
@@ -161,10 +161,12 @@ sys_set_priority(void)
       p->runTime = 0;
       p->DP = p->SP;
       if(p->DP < oldDP)
-        yield();
+        scheduleAgain = 1;
     }
     release(&p->lock);
   }
+  if(scheduleAgain)
+    yield();
   return oldSP;
 }
 

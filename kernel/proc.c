@@ -604,7 +604,6 @@ scheduler(void)
           swtch(&c->context, &highP->context);
           c->proc = 0;
         }
-        printf("%s\n",highP->name);
         release(&highP->lock);
       }
     #endif
