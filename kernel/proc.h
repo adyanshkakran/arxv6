@@ -112,7 +112,7 @@ struct proc {
   int passed_cputicks;         // ticks passed since last call of handler
   struct trapframe *initial_trapframe; // Trapframe to store details regarding return point of initial proc
   int ctime;                   // Creation time of process
-  int rtime;                   // Running time of process
+  int rtime;                   // Running time of process (Made due to set priority)
   int etime;                   // Exit time of process
 
   int tickets;                 // Number of tickets for lottery based scheduler
@@ -121,7 +121,18 @@ struct proc {
   int sleepTime;               // Number of ticks process has been sleeping
   int runTime;                 // Number of ticks process has been running
   int SP;                      // Static Priority for PBS 
-  int DP;                      // Dynamic Priority for PBS 
+  int DP;                      // Dynamic Priority for PBS
+
+  int queuetime;               // Time that a process enters a queue
+  int currq;                   // Current queue level
+  int inside;                  // whether process is in a queue
+  int timeSpent[NLEVELS];      // Time spent by process in each level
+  int timeRemaining;           // No. of ticks left
 };
 
 extern struct proc proc[NPROC];
+
+struct Queue{
+  struct proc* procs[NPROC];
+  int tail;
+};

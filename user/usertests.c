@@ -790,6 +790,7 @@ pipe1(char *s)
 void
 killstatus(char *s)
 {
+  #ifndef MLFQ
   int xst;
   
   for(int i = 0; i < 100; i++){
@@ -813,6 +814,7 @@ killstatus(char *s)
     }
   }
   exit(0);
+  #endif
 }
 
 // meant to be run w/ at most two CPUs

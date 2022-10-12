@@ -6,51 +6,49 @@
 #include "proc.h"
 #include "defs.h"
 
-// typedef struct Qnode{
-//     struct process* process;
-//     struct Qnode* next;
-// } qnode;
+struct Queue queues[NLEVELS];
 
-// typedef struct Queue{
-//   struct Qnode* front;
-//   struct Qnode* rear;
-//   int size;
-// } queue;
+void createQueues(){
+  for (int i = 0; i < NLEVELS; i++){
+    queues[i].tail = -1;
+    for(int j = 0; j < NPROC; j++)
+      queues[i].procs[j] = (void*)0;
+  }
+}
 
-// queue* createQueue(){
-//     queue* q = (queue*)malloc(sizeof(queue));
-//     q->front = (void*)0;
-//     q->rear = (void*)0;
-//     q->size = 0;
-//     return q;
-// }
 
-// void addToQueue(queue* q,struct process* p){
-//   qnode* newn = (qnode*)malloc(sizeof(qnode));
-//   newn->process = p;
-//   newn->next = (void*)0;
-//   q->size++;
-//   if(q->size == 1){
-//     q->front = newn;
-//     q->rear = newn;
-//   }else{
-//     q->rear->next = newn;
-//     q->rear = newn;
-//   }
-// }
+void push(struct proc *p, int qno){
+  // If it already exists in the queue            ***********************************
+  for(int i = 0; i < queues[qno].tail; i++)
+    if(queues[qno].procs[i]->pid == p->pid)
+      return;
 
-// struct process* pop(queue* q){
-//   if(q->size == 0)
-//     return -1;
-//   struct process* r = q->front->process;
-//   qnode* temp = q->front;
-//   q->front = q->front->next;
-//   if(q->front == (void*)0)
-//     q->rear = (void*)0;
-//   free(temp);
-//   q->size--;
-//   return r;
-// }
+  p->queuetime = ticks;
+  p->currq = qno;
+  p->inside = 1;
+  queues[qno].tail++;
+  queues[qno].procs[queues[qno].tail] = p;
+  return;
+}
+
+void erase(struct proc* p,int qno){
+  int in = -1;
+  for(int i = 0; i < NPROC; i++){
+    if(p->pid == queues[qno].procs[i]->pid){
+      in = i;
+      break;
+    }
+  }
+  if(in == -1)
+    return;
+
+  for(int i = in; i < queues[qno].tail; i++){
+    queues[qno].procs[i] = queues[qno].procs[i+1];
+  }
+  p->inside = 0;
+  queues[qno].procs[queues[qno].tail] = (void*)0;
+  queues[qno].tail--;
+}
 
 struct cpu cpus[NCPU];
 
@@ -198,6 +196,12 @@ found:
   p->scheduled = 0;
   p->SP = 60;
   p->DP = 0;
+  p->queuetime = ticks;
+  p->currq = 0;
+  p->inside = 0;
+  p->timeRemaining = 1;
+  for(int i = 0; i < NLEVELS; i++)
+    p->timeSpent[i] = 0;
 
   if ((p->initial_trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -608,7 +612,39 @@ scheduler(void)
       }
     #endif
     #ifdef MLFQ
-      
+      for(p = proc; p < &proc[NPROC]; p++){
+        acquire(&p->lock);
+        if(p->state == RUNNABLE && ticks - p->queuetime >= AGELIMIT && p->currq > 0){
+          erase(p,p->currq);
+          p->currq--;
+          push(p,p->currq);
+        }
+        if(p->state == RUNNABLE && !p->inside){
+          push(p,p->currq);
+        }
+        release(&p->lock);
+      }
+      struct proc* runP = 0;
+      for(int i = 0; i < NLEVELS && !runP; i++){
+        while(queues[i].tail > -1){
+          p = queues[i].procs[0];
+          erase(p,i);
+          acquire(&p->lock);
+          if(p->state == RUNNABLE){
+            runP = p;
+            break;
+          }
+          release(&p->lock);
+        }
+      }
+      if(runP){
+        runP->state = RUNNING;
+        runP->timeRemaining = 1 << runP->currq;
+        c->proc = runP;
+        swtch(&c->context, &runP->context);
+        c->proc = 0;
+        release(&runP->lock);
+      }
     #endif
     #ifdef DEFAULT
       for(p = proc; p < &proc[NPROC]; p++) {
@@ -752,6 +788,11 @@ kill(int pid)
     acquire(&p->lock);
     if(p->pid == pid){
       p->killed = 1;
+      // Removing process from q if it is killed
+      #ifdef MLFQ 
+        
+        erase(p,p->currq);
+      #endif
       if(p->state == SLEEPING){
         // Wake process from sleep().
         p->state = RUNNABLE;
@@ -838,7 +879,7 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
-    printf("%d %s %s %d %d", p->pid, state, p->name, p->rtime,p->runTime);
+    printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
 }
@@ -858,6 +899,8 @@ void updateTime(){
     if(p->state == SLEEPING)
       p->sleepTime++;
     else if(p->state == RUNNING){
+      p->timeRemaining--;
+      p->timeSpent[p->currq]++;
       p->runTime++;
       p->rtime++;
     }

@@ -10,6 +10,7 @@ struct spinlock tickslock;
 uint ticks;
 
 extern char trampoline[], uservec[], userret[];
+extern struct Queue queues[NPROC];
 
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
@@ -105,7 +106,25 @@ usertrap(void)
         p->passed_cputicks++;
       }
     }
-    yield();
+    #ifdef MLFQ
+      int scheduleAgain = 0;
+      // Pre empting the queue if there is another process in higher priority queue
+      for(int i = 0; i < p->currq; i++){
+        if(queues[i].tail != -1){
+          scheduleAgain = 1;
+          break;
+        }
+      }
+      if(p->timeRemaining <= 0){
+        if(p->currq < NLEVELS-1)
+          p->currq++;
+        scheduleAgain = 1;
+      }
+      if(scheduleAgain)
+        yield();
+    #else
+      yield();
+    #endif
   }
 
   usertrapret();
@@ -179,8 +198,28 @@ kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
-    yield();
+  if(which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING){
+    #ifdef MLFQ
+      int scheduleAgain = 0;
+      struct proc* p = myproc();
+      // Pre empting the queue if there is another process in higher priority queue
+      for(int i = 0; i < p->currq; i++){
+        if(queues[i].tail != -1){
+          scheduleAgain = 1;
+          break;
+        }
+      }
+      if(p->timeRemaining <= 0){
+        if(p->currq < NLEVELS-1)
+          p->currq++;
+        scheduleAgain = 1;
+      }
+      if(scheduleAgain)
+        yield();
+    #else
+      yield();
+    #endif
+  }
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.

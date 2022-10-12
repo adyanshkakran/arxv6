@@ -112,6 +112,10 @@ int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
 int             rand(void);
 void            updateTime(void);
+void            push(struct proc*,int);
+void            createQueues();
+void            erase(struct proc*,int);
+
 
 // swtch.S
 void            swtch(struct context*, struct context*);
