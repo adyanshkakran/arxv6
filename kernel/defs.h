@@ -64,7 +64,7 @@ void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
 void            addReference(void*);
-void            decReference(void*);
+void*           copyndecref(void*);
 int             pagefhandler(pagetable_t ,uint64);
 
 // log.c

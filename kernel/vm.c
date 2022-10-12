@@ -315,12 +315,13 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
-    *pte &= ~PTE_W;
+
+    *pte = (*pte & ~PTE_W) | PTE_COW;
     flags = PTE_FLAGS(*pte);
-    addReference((void*)pa);
     if(mappages(new, i, PGSIZE, pa, flags) != 0){
       goto err;
     }
+    addReference((void*)pa);
   }
   return 0;
 
@@ -350,18 +351,13 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
 
+  pagefhandler(pagetable,dstva); // Makes page fault exception if it is a cow page
+
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    if(va0 >= MAXVA)
+    pa0 = walkaddr(pagetable, va0);
+    if(pa0 == 0)
       return -1;
-
-    pte_t* pte = walk(pagetable, va0, 0);
-    if(pte == 0 || !(*pte & PTE_V) || !(*pte & PTE_U))
-      return -1;
-    if(0 == (*pte & PTE_W) && pagefhandler(pagetable,va0) < 0)
-      return -1;
-
-    pa0 = PTE2PA(*pte);
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;

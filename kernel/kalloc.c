@@ -21,14 +21,18 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
-  int references[MAXREF];
 } kmem;
 
+struct {
+  struct spinlock lock;
+  int references[MAXREF];
+} Ref;
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&Ref.lock, "Ref");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -37,14 +41,9 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  acquire(&kmem.lock);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE){
-    kmem.references[PA2REF(p)] = 1;
-    release(&kmem.lock);
     kfree(p);
-    acquire(&kmem.lock);
   }
-  release(&kmem.lock);
 }
 
 // Free the page of physical memory pointed at by pa,
@@ -57,22 +56,24 @@ kfree(void *pa)
   struct run *r;
 
   int ref = PA2REF(pa);
-  acquire(&kmem.lock);
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP || kmem.references[ref] < 1)
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  kmem.references[ref]--;
-  if(kmem.references[ref] > 0){
-    release(&kmem.lock);
+  acquire(&Ref.lock);
+  if(--Ref.references[ref] > 0){
+    release(&Ref.lock);
     return;
   }
+  release(&Ref.lock);
 
   memset(pa, 1, PGSIZE);   // Fill with junk to catch dangling refs.
-
   r = (struct run*)pa;
+
+  acquire(&kmem.lock);
 
   r->next = kmem.freelist;
   kmem.freelist = r;
+
   release(&kmem.lock);
 }
 
@@ -91,12 +92,8 @@ kalloc(void)
   release(&kmem.lock);
 
   if(r){
-    memset((char*)r, 5, PGSIZE); // fill with junk
-    acquire(&kmem.lock);
-    if(kmem.references[PA2REF((uint64)r)] != 0)
-      panic("kalloc");
-    kmem.references[PA2REF((uint64)r)] = 1;
-    release(&kmem.lock);
+    memset((char*)r, 69, PGSIZE); // fill with junk
+    Ref.references[PA2REF((uint64)r)] = 1;
   }
   return (void*)r;
 }
@@ -105,28 +102,33 @@ void addReference(void* pa){
   int ref = PA2REF(pa);
   if(ref < 0 || ref >= MAXREF)
     return;
-  acquire(&kmem.lock);
-  kmem.references[ref]++;
-  release(&kmem.lock);
+  acquire(&Ref.lock);
+  Ref.references[ref]++;
+  release(&Ref.lock);
 }
 
-void decReference(void* pa){
+// Copy the page to another memory address and decrease reference count
+void* copyndecref(void* pa){
   int ref = PA2REF(pa);
   if(ref < 0 || ref >= MAXREF)
-    return;
-  acquire(&kmem.lock);
-  if(kmem.references[ref] <= 0){
-    panic("References");
+    return 0;
+
+  acquire(&Ref.lock);
+  if(Ref.references[ref] <= 1){
+    release(&Ref.lock);
+    return pa;
   }
-  kmem.references[ref]--;
   
-  // If all references to page is removed
-  if(kmem.references[ref] == 0){
-    release(&kmem.lock);
-    kfree(pa);
-    return;
+  Ref.references[ref]--;
+  
+  uint64 mem = (uint64)kalloc();
+  if(mem == 0){
+    release(&Ref.lock);
+    return 0;
   }
-  release(&kmem.lock);
+  memmove((void*)mem,(void*)pa, PGSIZE);
+  release(&Ref.lock);
+  return (void*)mem;
 }
 
 int pagefhandler(pagetable_t pagetable,uint64 va){
@@ -135,23 +137,23 @@ int pagefhandler(pagetable_t pagetable,uint64 va){
 
   pte_t *pte = walk(pagetable,va,0);
   if(pte == 0){
-    printf("Page not Found: Page Fault Exception\n");
     return -1;
   }
-  if(!(*pte & PTE_V) || !(*pte & PTE_U)){
-    printf("Permissions not found\n");
+  if(!(*pte & PTE_V) || !(*pte & PTE_U) || !(*pte & PTE_COW)){
     return -1;
   }
 
-  uint64 pa = (uint64)PTE2PA(*pte);
+  uint64 pa = PTE2PA(*pte);
+  void* mem = copyndecref((void*)pa);
 
-  char *mem = kalloc(); // Make copy of page and map calling process(parent or child) to it
   if(mem == 0)
     return -1;
-  memmove(mem,(char*)pa,PGSIZE);
 
-  kfree((void*)pa);
-  *pte = PA2PTE(mem) | PTE_V | PTE_U | PTE_R | PTE_W | PTE_X;
+  uint64 flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_COW;
+  uvmunmap(pagetable,PGROUNDDOWN(va),1,0);
+  if(mappages(pagetable,va,1,(uint64)mem,flags) == -1){
+    panic("Pagefhandler mappages");
+  }
 
   return 0;
 }
