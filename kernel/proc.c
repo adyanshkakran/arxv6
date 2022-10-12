@@ -18,7 +18,6 @@ void createQueues(){
 
 
 void push(struct proc *p, int qno){
-  // If it already exists in the queue            ***********************************
   for(int i = 0; i < queues[qno].tail; i++)
     if(queues[qno].procs[i]->pid == p->pid)
       return;
@@ -33,7 +32,7 @@ void push(struct proc *p, int qno){
 
 void erase(struct proc* p,int qno){
   int in = -1;
-  for(int i = 0; i < NPROC; i++){
+  for(int i = 0; i <= queues[qno].tail; i++){
     if(p->pid == queues[qno].procs[i]->pid){
       in = i;
       break;
@@ -790,7 +789,6 @@ kill(int pid)
       p->killed = 1;
       // Removing process from q if it is killed
       #ifdef MLFQ 
-        
         erase(p,p->currq);
       #endif
       if(p->state == SLEEPING){
@@ -872,6 +870,22 @@ procdump(void)
   char *state;
 
   printf("\n");
+  // #ifdef MLFQ
+  //   for(int i = 0; i < NLEVELS; i++){
+  //     printf("Queue %d: ",i);
+  //     for(int j = 0; j <= queues[i].tail; j++){
+  //       p = queues[i].procs[j];
+  //       if(p->state == UNUSED)
+  //         continue;
+  //       if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
+  //         state = states[p->state];
+  //       else
+  //         state = "???";
+  //       printf("%d %s %s ", p->pid, state, p->name);
+  //     }
+  //     printf("\n");
+  //   }
+  // #else
   for(p = proc; p < &proc[NPROC]; p++) {
     if(p->state == UNUSED)
       continue;
@@ -879,9 +893,11 @@ procdump(void)
       state = states[p->state];
     else
       state = "???";
+      
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+  // #endif
 }
 
 static unsigned long int next = 1;
