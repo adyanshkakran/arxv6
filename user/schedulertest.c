@@ -16,11 +16,15 @@ int main() {
       if (pid < 0)
           break;
       if (pid == 0) {
+#ifndef FCFS
+#ifndef LOTTERY
           if (n < IO) {
             sleep(200); // IO bound processes
-          } else {
+          } else
+#endif
+#endif
             for (volatile int i = 0; i < 1000000000; i++) {}; // CPU bound process
-          }
+
           printf("Process %d finished\n", n);
           exit(0);
       } else {

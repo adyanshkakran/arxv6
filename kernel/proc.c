@@ -199,8 +199,6 @@ found:
   p->currq = 0;
   p->inside = 0;
   p->timeRemaining = 1;
-  for(int i = 0; i < NLEVELS; i++)
-    p->timeSpent[i] = 0;
 
   if ((p->initial_trapframe = (struct trapframe *)kalloc()) == 0) {
     freeproc(p);
@@ -561,6 +559,10 @@ scheduler(void)
 
       for(p = proc; p < &proc[NPROC]; p++) {
         acquire(&p->lock);
+        // if(p->state == RUNNABLE){
+        //   printf("%d,%d ",lottery_winner,current);
+        //   printf("\n");
+        // }
         if(p->state == RUNNABLE && lottery_winner < p->tickets+current){
           p->state = RUNNING;
           c->proc = p;
@@ -570,7 +572,8 @@ scheduler(void)
           release(&p->lock);
           break;
         }
-        current += p->tickets;
+        if(p->state == RUNNABLE)
+          current += p->tickets;
         release(&p->lock);
       }
     #endif
@@ -911,12 +914,14 @@ int rand(void) // RAND_MAX assumed to be 32767
 void updateTime(){
   struct proc* p;
   for(p = proc; p < &proc[NPROC]; p++){
+    // if(p->inside){
+      p->timeStamp[ticks-p->ctime] = p->currq+1;
+    // }
     acquire(&p->lock);
     if(p->state == SLEEPING)
       p->sleepTime++;
     else if(p->state == RUNNING){
       p->timeRemaining--;
-      p->timeSpent[p->currq]++;
       p->runTime++;
       p->rtime++;
     }
