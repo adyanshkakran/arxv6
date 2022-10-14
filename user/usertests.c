@@ -2788,7 +2788,9 @@ execout(char *s)
     if(pid < 0){
       printf("fork failed\n");
       exit(1);
-    } else if(pid == 0){
+    } 
+    else if(pid == 0){
+      printf("");
       // allocate all of memory.
       while(1){
         uint64 a = (uint64) sbrk(4096);
@@ -2806,7 +2808,9 @@ execout(char *s)
       char *args[] = { "echo", "x", 0 };
       exec("echo", args);
       exit(0);
-    } else {
+      
+    } 
+    else{
       wait((int*)0);
     }
   }

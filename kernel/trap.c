@@ -99,6 +99,7 @@ usertrap(void)
          * so sigreturn can restore interrupted process status
          * save user trapframe registers into alarm trapframe
          */
+        p->initial_trapframe = (struct trapframe *)kalloc();
         memmove(p->initial_trapframe, p->trapframe, sizeof(struct trapframe));
         // epc point to handler function
         p->trapframe->epc = p->handler;

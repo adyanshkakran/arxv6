@@ -200,12 +200,6 @@ found:
   p->inside = 0;
   p->timeRemaining = 1;
 
-  if ((p->initial_trapframe = (struct trapframe *)kalloc()) == 0) {
-    freeproc(p);
-    release(&p->lock);
-    return 0;
-  }
-
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -223,6 +217,9 @@ freeproc(struct proc *p)
 {
   if(p->trapframe)
     kfree((void*)p->trapframe);
+  if(p->initial_trapframe)
+    kfree((void*)p->initial_trapframe);
+  p->initial_trapframe=0;
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
@@ -914,9 +911,9 @@ int rand(void) // RAND_MAX assumed to be 32767
 void updateTime(){
   struct proc* p;
   for(p = proc; p < &proc[NPROC]; p++){
-    // if(p->inside){
-      p->timeStamp[ticks-p->ctime] = p->currq+1;
-    // }
+    // // if(p->inside){
+    //   p->timeStamp[ticks-p->ctime] = p->currq+1;
+    // // }
     acquire(&p->lock);
     if(p->state == SLEEPING)
       p->sleepTime++;

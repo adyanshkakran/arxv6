@@ -126,7 +126,7 @@ struct proc {
   int queuetime;               // Time that a process enters a queue
   int currq;                   // Current queue level
   int inside;                  // whether process is in a queue
-  int timeStamp[250];          // Time spent by process in each level
+  // int timeStamp[250];          // Time spent by process in each level
   int timeRemaining;           // No. of ticks left
 };
 
