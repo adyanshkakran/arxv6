@@ -172,7 +172,10 @@ Processes from the highest queue are popped and ran for the time slice of the qu
 
 `How can a process take advantage of this?`  
 ```
-If an process is aware of the time slice of a queue, then to maximize the amount of CPU time it gets, it can relinquish control of the CPU just before the time slice gets over i.e. before it is preempted. It will then immediately return and get pushed back to the same queue. Thus it avoids being pushed into lower priority queues.
+If an process is aware of the time slice of a queue, then to maximize the amount of CPU time it gets, 
+it can relinquish control of the CPU just before the time slice gets over i.e. before it is preempted. 
+It will then immediately return and get pushed back to the same queue. 
+Thus it avoids being pushed into lower priority queues.
 ```
 - If a process is waiting for more than a threshold time limit in a queue, it is pushed to the next higher priority queue and its wait time is reset to 0. (`Aging`)
 - Completed processes leave the system
